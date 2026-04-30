@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="background_dark">#1A1A1A</color>
+    <color name="background_console">#0D0D0D</color>
+    <color name="text_primary">#FFFFFF</color>
+    <color name="text_secondary">#888888</color>
+    <color name="status_red">#CC3333</color>
+    <color name="status_yellow">#FFCC00</color>
+    <color name="status_green">#33CC33</color>
+    <color name="nmea_green">#00FF00</color>
+</resources>

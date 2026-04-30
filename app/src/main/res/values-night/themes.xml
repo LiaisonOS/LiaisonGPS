@@ -1,0 +1,12 @@
+<resources>
+    <style name="Theme.LiaisonGPS" parent="Theme.MaterialComponents.DayNight.DarkActionBar">
+        <item name="colorPrimary">@color/status_red</item>
+        <item name="colorPrimaryVariant">@color/background_dark</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorSecondary">@color/nmea_green</item>
+        <item name="colorSecondaryVariant">@color/nmea_green</item>
+        <item name="colorOnSecondary">@color/black</item>
+        <item name="android:statusBarColor">@color/background_dark</item>
+        <item name="android:windowBackground">@color/background_dark</item>
+    </style>
+</resources>

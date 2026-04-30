@@ -1,0 +1,17 @@
+<resources>
+    <string name="app_name">LiaisonGPS</string>
+    <string name="status_waiting">Waiting for connection…</string>
+    <string name="status_connected">Connected — acquiring GPS…</string>
+    <string name="status_streaming">Streaming GPS data</string>
+    <string name="btn_stop">Stop</string>
+    <string name="label_satellites">Satellites</string>
+    <string name="label_accuracy">Accuracy</string>
+    <string name="label_nmea">NMEA</string>
+    <string name="error_no_bluetooth">Bluetooth not available on this device</string>
+    <string name="error_bt_required">Bluetooth is required to run LiaisonGPS</string>
+    <string name="error_permissions_required">Permissions are required to run LiaisonGPS</string>
+    <string name="label_utc_time">UTC Time</string>
+    <string name="label_position">Position</string>
+    <string name="label_grid">Maidenhead Grid</string>
+    <string name="subtitle">VA2OPS — LiaisonOS</string>
+</resources>

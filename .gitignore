@@ -1,0 +1,34 @@
+# Android build outputs
+/build
+app/build/
+*.apk
+*.aab
+
+# Gradle
+.gradle
+gradle-wrapper.jar
+
+# Android Studio IDE files
+/.idea/
+*.iml
+
+# Local config — never commit these
+local.properties
+keystore.properties
+*.keystore
+*.jks
+
+# NDK / native build artifacts
+.externalNativeBuild
+.cxx
+app/src/main/cpp/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude project instructions
+CLAUDE.md
+
+# Misc
+/captures
