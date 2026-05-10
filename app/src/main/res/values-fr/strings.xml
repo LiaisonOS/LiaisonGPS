@@ -4,6 +4,12 @@
     <string name="status_connected">Connecté — acquisition GPS…</string>
     <string name="status_streaming">Diffusion des données GPS</string>
     <string name="btn_stop">Arrêter</string>
+    <string name="btn_close">Fermer</string>
+    <string name="btn_pause">Pause</string>
+    <string name="btn_resume">Reprendre</string>
+    <string name="status_paused">En pause — connexion maintenue</string>
+    <string name="fix_none">○  Pas de fix GPS</string>
+    <string name="fix_acquired">●  Fix GPS obtenu</string>
     <string name="label_satellites">Satellites</string>
     <string name="label_accuracy">Précision</string>
     <string name="label_nmea">NMEA</string>

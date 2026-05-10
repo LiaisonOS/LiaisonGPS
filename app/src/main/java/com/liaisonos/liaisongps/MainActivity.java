@@ -7,6 +7,8 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
 import android.location.LocationManager;
+import android.media.AudioManager;
+import android.media.ToneGenerator;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -21,6 +23,9 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 
 import java.io.OutputStream;
 import java.util.ArrayList;
@@ -50,12 +55,16 @@ public class MainActivity extends AppCompatActivity
     private TextView gridSquareText;
     private TextView nmeaLog;
     private ScrollView nmeaScrollView;
+    private TextView fixStatusText;
+    private Button btnAction;
+    private Button btnPause;
 
     private final StringBuilder nmeaBuffer = new StringBuilder();
     private int logLineCount = 0;
     private boolean btConnected = false;
+    private boolean streamingPaused = false;
 
-    private enum Status { WAITING, CONNECTED, STREAMING }
+    private enum Status { WAITING, CONNECTED, STREAMING, PAUSED }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -75,11 +84,44 @@ public class MainActivity extends AppCompatActivity
         gridSquareText = findViewById(R.id.gridSquare);
         nmeaLog = findViewById(R.id.nmeaLog);
         nmeaScrollView = findViewById(R.id.nmeaScrollView);
-        Button btnStop = findViewById(R.id.btnStop);
+        fixStatusText = findViewById(R.id.fixStatus);
 
-        btnStop.setOnClickListener(v -> {
-            stopAll();
-            finish();
+        // Keep buttons clear of the gesture/nav bar on edge-to-edge displays
+        int dp24 = Math.round(24 * getResources().getDisplayMetrics().density);
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.rootLayout), (v, insets) -> {
+            Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+            v.setPadding(dp24, dp24, dp24, dp24 + bars.bottom);
+            return WindowInsetsCompat.CONSUMED;
+        });
+
+        btnAction = findViewById(R.id.btnStop);
+        btnAction.setText(R.string.btn_close); // safe to close until a client connects
+
+        btnAction.setOnClickListener(v -> {
+            if (btConnected) {
+                // Client is active — disconnect it, keep the server listening
+                nmeaForwarder.stopStreaming();
+                bluetoothServer.disconnectClient();
+            } else {
+                // No client — safe to shut everything down
+                stopAll();
+                finish();
+            }
+        });
+
+        btnPause = findViewById(R.id.btnPause);
+        btnPause.setOnClickListener(v -> {
+            if (streamingPaused) {
+                streamingPaused = false;
+                nmeaForwarder.resume();
+                btnPause.setText(R.string.btn_pause);
+                setStatus(Status.STREAMING);
+            } else {
+                streamingPaused = true;
+                nmeaForwarder.pause();
+                btnPause.setText(R.string.btn_resume);
+                setStatus(Status.PAUSED);
+            }
         });
 
         enableBtLauncher = registerForActivityResult(
@@ -182,6 +224,10 @@ public class MainActivity extends AppCompatActivity
                 color = 0xFF33CC33;
                 textRes = R.string.status_streaming;
                 break;
+            case PAUSED:
+                color = 0xFFFF8800;
+                textRes = R.string.status_paused;
+                break;
             default: // WAITING
                 color = 0xFFCC3333;
                 textRes = R.string.status_waiting;
@@ -196,14 +242,20 @@ public class MainActivity extends AppCompatActivity
     @Override
     public void onClientConnected(OutputStream out) {
         btConnected = true;
+        btnAction.setText(R.string.btn_stop);
+        btnPause.setVisibility(View.VISIBLE);
         setStatus(Status.CONNECTED);
-        nmeaForwarder.startStreaming(out);
+        nmeaForwarder.startStreaming(out); // also resets paused flag
     }
 
     @Override
     public void onClientDisconnected() {
         btConnected = false;
+        streamingPaused = false;
         nmeaForwarder.stopStreaming(); // keep GPS listener alive for next connection
+        btnPause.setText(R.string.btn_pause);
+        btnPause.setVisibility(View.GONE);
+        btnAction.setText(R.string.btn_close);
         setStatus(Status.WAITING);
         // BluetoothGpsServer loops automatically and waits for the next connection
     }
@@ -228,7 +280,7 @@ public class MainActivity extends AppCompatActivity
         logLineCount++;
         nmeaLog.setText(nmeaBuffer.toString());
         nmeaScrollView.post(() -> nmeaScrollView.fullScroll(ScrollView.FOCUS_DOWN));
-        if (btConnected) setStatus(Status.STREAMING);
+        if (btConnected && !streamingPaused) setStatus(Status.STREAMING);
     }
 
     @Override
@@ -250,6 +302,24 @@ public class MainActivity extends AppCompatActivity
     public void onPositionUpdate(String latLon, String gridSquare) {
         latLonText.setText(latLon);
         gridSquareText.setText(gridSquare);
+    }
+
+    @Override
+    public void onFixStateChanged(boolean hasFix) {
+        if (hasFix) {
+            fixStatusText.setText(R.string.fix_acquired);
+            fixStatusText.setTextColor(0xFF33FF99);
+            playFixBeep();
+        } else {
+            fixStatusText.setText(R.string.fix_none);
+            fixStatusText.setTextColor(0xFF888888);
+        }
+    }
+
+    private void playFixBeep() {
+        ToneGenerator tg = new ToneGenerator(AudioManager.STREAM_NOTIFICATION, ToneGenerator.MAX_VOLUME);
+        tg.startTone(ToneGenerator.TONE_PROP_BEEP, 200);
+        mainHandler.postDelayed(tg::release, 350);
     }
 
     @Override

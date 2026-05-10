@@ -21,6 +21,7 @@ public class NmeaForwarder {
         void onAccuracyUpdate(String accuracy);
         void onUtcTimeUpdate(String utcTime);
         void onPositionUpdate(String latLon, String gridSquare);
+        void onFixStateChanged(boolean hasFix);
     }
 
     private final LocationManager locationManager;
@@ -32,6 +33,8 @@ public class NmeaForwarder {
     private LocationListener locationListener;
 
     private volatile OutputStream outputStream;
+    private OutputStream pausedOutputStream;
+    private boolean hasFix = false; // holds the stream while paused; main-thread only
     private static final byte[] CRLF = "\r\n".getBytes(StandardCharsets.US_ASCII);
     // Pre-allocated buffer reused on every write — no GC on the hot path
     private final byte[] writeBuffer = new byte[256];
@@ -67,14 +70,27 @@ public class NmeaForwarder {
                 } catch (IOException ignored) {}
             }
 
-            // Parse satellite count from GGA
+            // Parse satellite count and fix status from GGA
             if (message.startsWith("$GPGGA") || message.startsWith("$GNGGA")) {
                 String[] parts = message.split(",");
-                if (parts.length > 7 && !parts[7].isEmpty()) {
-                    try {
-                        int sats = Integer.parseInt(parts[7].trim());
-                        mainHandler.post(() -> listener.onSatelliteUpdate(sats));
-                    } catch (NumberFormatException ignored) {}
+                if (parts.length > 7) {
+                    // Field 6: fix quality — 0 = no fix, 1+ = fix
+                    if (!parts[6].isEmpty()) {
+                        try {
+                            boolean nowFix = Integer.parseInt(parts[6].trim()) > 0;
+                            if (nowFix != hasFix) {
+                                hasFix = nowFix;
+                                mainHandler.post(() -> listener.onFixStateChanged(hasFix));
+                            }
+                        } catch (NumberFormatException ignored) {}
+                    }
+                    // Field 7: satellite count
+                    if (!parts[7].isEmpty()) {
+                        try {
+                            int sats = Integer.parseInt(parts[7].trim());
+                            mainHandler.post(() -> listener.onSatelliteUpdate(sats));
+                        } catch (NumberFormatException ignored) {}
+                    }
                 }
             }
 
@@ -118,12 +134,24 @@ public class NmeaForwarder {
 
     /** Call when BT client connects — NMEA sentences will now stream over this socket. */
     public void startStreaming(OutputStream out) {
+        pausedOutputStream = null;
         outputStream = out;
     }
 
     /** Call when BT client disconnects — stops streaming but keeps GPS listener alive. */
     public void stopStreaming() {
+        pausedOutputStream = null;
         outputStream = null;
+    }
+
+    public void pause() {
+        pausedOutputStream = outputStream; // save
+        outputStream = null;               // single volatile write — nmeaThread sees null immediately
+    }
+
+    public void resume() {
+        outputStream = pausedOutputStream; // single volatile write — nmeaThread resumes
+        pausedOutputStream = null;
     }
 
     private static String toMaidenhead(double lat, double lon) {
@@ -140,6 +168,7 @@ public class NmeaForwarder {
 
     /** Full stop — unregisters GPS listeners and shuts down worker thread. */
     public void stop() {
+        hasFix = false;
         outputStream = null;
         if (nmeaListener != null) {
             locationManager.removeNmeaListener(nmeaListener);

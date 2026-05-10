@@ -85,23 +85,33 @@ public class BluetoothGpsServer {
         } catch (IOException ignored) {}
     }
 
+    public void disconnectClient() {
+        if (clientSocket != null) {
+            try { clientSocket.getOutputStream().flush(); } catch (IOException ignored) {}
+            try { Thread.sleep(150); } catch (InterruptedException ignored) {}
+            try { clientSocket.close(); } catch (IOException ignored) {}
+            clientSocket = null;
+        }
+        // running stays true — accept loop will restart and wait for the next connection
+    }
+
     public void stop() {
         running = false;
-        // Close output stream first so the remote side gets a clean EOF
-        try {
-            if (clientSocket != null) {
-                try { clientSocket.getOutputStream().flush(); } catch (IOException ignored) {}
-                try { clientSocket.getOutputStream().close(); } catch (IOException ignored) {}
-                clientSocket.close();
-                clientSocket = null;
-            }
-        } catch (IOException ignored) {}
-        try {
-            if (serverSocket != null) {
-                serverSocket.close();
-                serverSocket = null;
-            }
-        } catch (IOException ignored) {}
+        if (clientSocket != null) {
+            // Flush then wait for the BT stack to drain before closing.
+            // Do NOT call getOutputStream().close() — on Android that internally
+            // calls socket.close(), leaving clientSocket in a broken half-closed
+            // state; the RFCOMM DISC frame never reaches the Linux side and
+            // rfcomm0 hangs until timeout.
+            try { clientSocket.getOutputStream().flush(); } catch (IOException ignored) {}
+            try { Thread.sleep(150); } catch (InterruptedException ignored) {}
+            try { clientSocket.close(); } catch (IOException ignored) {}
+            clientSocket = null;
+        }
+        if (serverSocket != null) {
+            try { serverSocket.close(); } catch (IOException ignored) {}
+            serverSocket = null;
+        }
         if (acceptThread != null) {
             acceptThread.interrupt();
             acceptThread = null;
