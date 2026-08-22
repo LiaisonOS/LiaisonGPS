@@ -20,4 +20,5 @@
     <string name="label_position">Position</string>
     <string name="label_grid">Maidenhead Grid</string>
     <string name="subtitle">VA2OPS — LiaisonOS</string>
+    <string name="notification_channel_name">GPS streaming</string>
 </resources>

@@ -3,17 +3,21 @@ package com.liaisonos.liaisongps;
 import android.Manifest;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothManager;
+import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
+import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
-import android.location.LocationManager;
 import android.media.AudioManager;
 import android.media.ToneGenerator;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Looper;
 import android.view.View;
+import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -23,25 +27,47 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
-import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 
-public class MainActivity extends AppCompatActivity
-        implements BluetoothGpsServer.Listener, NmeaForwarder.Listener {
+public class MainActivity extends AppCompatActivity implements GpsStreamingService.UiListener {
 
     private static final int REQUEST_PERMISSIONS = 1;
     private static final int MAX_LOG_LINES = 10;
 
     private BluetoothAdapter bluetoothAdapter;
-    private BluetoothGpsServer bluetoothServer;
-    private NmeaForwarder nmeaForwarder;
-    private LocationManager locationManager;
     private Handler mainHandler;
+
+    private GpsStreamingService gpsService;
+    private boolean boundToService = false;
+
+    private final ServiceConnection serviceConnection = new ServiceConnection() {
+        @Override
+        public void onServiceConnected(ComponentName name, IBinder service) {
+            gpsService = ((GpsStreamingService.LocalBinder) service).getService();
+            gpsService.setUiListener(MainActivity.this);
+            btConnected = gpsService.isClientConnected();
+            if (btConnected) {
+                btnAction.setText(R.string.btn_stop);
+                btnPause.setVisibility(View.VISIBLE);
+                setStatus(streamingPaused ? Status.PAUSED : Status.STREAMING);
+            } else {
+                btnAction.setText(R.string.btn_close);
+                btnPause.setVisibility(View.GONE);
+                setStatus(Status.WAITING);
+            }
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName name) {
+            gpsService = null;
+        }
+    };
 
     private ActivityResultLauncher<Intent> enableBtLauncher;
 
@@ -70,6 +96,10 @@ public class MainActivity extends AppCompatActivity
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        // Avoid the automatic screen-timeout while this activity is visible. Streaming
+        // itself survives a manual screen lock via the GpsStreamingService foreground service.
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         if (getSupportActionBar() != null) getSupportActionBar().hide();
 
@@ -100,8 +130,7 @@ public class MainActivity extends AppCompatActivity
         btnAction.setOnClickListener(v -> {
             if (btConnected) {
                 // Client is active — disconnect it, keep the server listening
-                nmeaForwarder.stopStreaming();
-                bluetoothServer.disconnectClient();
+                if (gpsService != null) gpsService.disconnectClient();
             } else {
                 // No client — safe to shut everything down
                 stopAll();
@@ -113,12 +142,12 @@ public class MainActivity extends AppCompatActivity
         btnPause.setOnClickListener(v -> {
             if (streamingPaused) {
                 streamingPaused = false;
-                nmeaForwarder.resume();
+                if (gpsService != null) gpsService.resumeStreaming();
                 btnPause.setText(R.string.btn_pause);
                 setStatus(Status.STREAMING);
             } else {
                 streamingPaused = true;
-                nmeaForwarder.pause();
+                if (gpsService != null) gpsService.pauseStreaming();
                 btnPause.setText(R.string.btn_resume);
                 setStatus(Status.PAUSED);
             }
@@ -134,8 +163,6 @@ public class MainActivity extends AppCompatActivity
                         finish();
                     }
                 });
-
-        locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
 
         BluetoothManager bm = (BluetoothManager) getSystemService(BLUETOOTH_SERVICE);
         bluetoothAdapter = bm != null ? bm.getAdapter() : null;
@@ -161,6 +188,11 @@ public class MainActivity extends AppCompatActivity
 
         if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED)
             needed.add(Manifest.permission.ACCESS_FINE_LOCATION);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+                needed.add(Manifest.permission.POST_NOTIFICATIONS);
+        }
 
         if (needed.isEmpty()) {
             checkBluetoothEnabled();
@@ -195,20 +227,31 @@ public class MainActivity extends AppCompatActivity
 
     private void startServer() {
         setStatus(Status.WAITING);
-        nmeaForwarder = new NmeaForwarder(locationManager, this, mainHandler);
-        nmeaForwarder.startListening(); // show GPS stats immediately, before BT connects
-        bluetoothServer = new BluetoothGpsServer(bluetoothAdapter, this, mainHandler);
-        bluetoothServer.start();
+        Intent serviceIntent = new Intent(this, GpsStreamingService.class);
+        ContextCompat.startForegroundService(this, serviceIntent);
+        bindService(serviceIntent, serviceConnection, Context.BIND_AUTO_CREATE);
+        boundToService = true;
     }
 
+    /** Fully tears down the GPS/BT engine — only call from the explicit Close action. */
     private void stopAll() {
-        if (nmeaForwarder != null) {
-            nmeaForwarder.stop();
-            nmeaForwarder = null;
+        if (boundToService) {
+            if (gpsService != null) gpsService.setUiListener(null);
+            unbindService(serviceConnection);
+            boundToService = false;
         }
-        if (bluetoothServer != null) {
-            bluetoothServer.stop();
-            bluetoothServer = null;
+        gpsService = null;
+        Intent stopIntent = new Intent(this, GpsStreamingService.class)
+                .setAction(GpsStreamingService.ACTION_STOP);
+        startService(stopIntent);
+    }
+
+    /** Detaches from the service without stopping it — streaming continues with the screen locked. */
+    private void unbindFromService() {
+        if (boundToService) {
+            if (gpsService != null) gpsService.setUiListener(null);
+            unbindService(serviceConnection);
+            boundToService = false;
         }
     }
 
@@ -237,27 +280,25 @@ public class MainActivity extends AppCompatActivity
         statusText.setText(textRes);
     }
 
-    // --- BluetoothGpsServer.Listener ---
+    // --- GpsStreamingService.UiListener ---
 
     @Override
-    public void onClientConnected(OutputStream out) {
+    public void onClientConnected() {
         btConnected = true;
         btnAction.setText(R.string.btn_stop);
         btnPause.setVisibility(View.VISIBLE);
         setStatus(Status.CONNECTED);
-        nmeaForwarder.startStreaming(out); // also resets paused flag
     }
 
     @Override
     public void onClientDisconnected() {
         btConnected = false;
         streamingPaused = false;
-        nmeaForwarder.stopStreaming(); // keep GPS listener alive for next connection
         btnPause.setText(R.string.btn_pause);
         btnPause.setVisibility(View.GONE);
         btnAction.setText(R.string.btn_close);
         setStatus(Status.WAITING);
-        // BluetoothGpsServer loops automatically and waits for the next connection
+        // The service's accept loop restarts automatically and waits for the next connection
     }
 
     @Override
@@ -265,8 +306,6 @@ public class MainActivity extends AppCompatActivity
         statusDot.setBackgroundTintList(ColorStateList.valueOf(0xFF888888));
         statusText.setText(message);
     }
-
-    // --- NmeaForwarder.Listener ---
 
     @Override
     public void onNmeaReceived(String sentence) {
@@ -325,6 +364,8 @@ public class MainActivity extends AppCompatActivity
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        stopAll();
+        // Only detach — the foreground service keeps streaming after the activity is gone
+        // (screen locked, app swiped away). Full teardown only happens via the Close button.
+        unbindFromService();
     }
 }
