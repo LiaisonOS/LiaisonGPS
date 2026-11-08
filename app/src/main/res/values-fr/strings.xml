@@ -21,4 +21,6 @@
     <string name="label_grid">Locateur Maidenhead</string>
     <string name="subtitle">VA2OPS — LiaisonOS</string>
     <string name="notification_channel_name">Diffusion GPS</string>
+    <string name="status_signal_lost">Signal GPS perdu — vérifiez l\'appareil</string>
+    <string name="warning_background_location_denied">Localisation en arrière-plan refusée — le GPS peut s\'arrêter si vous quittez l\'application</string>
 </resources>

@@ -45,6 +45,10 @@ public class GpsStreamingService extends Service
     public static final String ACTION_STOP = "com.liaisonos.liaisongps.action.STOP";
     private static final String CHANNEL_ID = "gps_streaming";
     private static final int NOTIFICATION_ID = 1;
+    // If no NMEA sentence arrives for this long, the GPS listener has gone silent
+    // (e.g. background location access was revoked after the task was swiped from
+    // Recents) even though the notification still claims we're streaming.
+    private static final long NMEA_TIMEOUT_MS = 8000;
 
     private final IBinder binder = new LocalBinder();
     private UiListener uiListener;
@@ -58,6 +62,7 @@ public class GpsStreamingService extends Service
 
     private volatile boolean clientConnected = false;
     private boolean notifiedStreaming = false;
+    private final Runnable nmeaWatchdog = this::onNmeaTimeout;
 
     public class LocalBinder extends Binder {
         GpsStreamingService getService() {
@@ -95,6 +100,7 @@ public class GpsStreamingService extends Service
         if (nmeaForwarder == null) {
             nmeaForwarder = new NmeaForwarder(locationManager, this, mainHandler);
             nmeaForwarder.startListening();
+            armWatchdog();
         }
         if (bluetoothServer == null) {
             bluetoothServer = new BluetoothGpsServer(bluetoothAdapter, this, mainHandler);
@@ -129,6 +135,7 @@ public class GpsStreamingService extends Service
 
     /** Full teardown — call when the operator explicitly closes the app. */
     private void stopStreaming() {
+        mainHandler.removeCallbacks(nmeaWatchdog);
         if (nmeaForwarder != null) {
             nmeaForwarder.stop();
             nmeaForwarder = null;
@@ -150,6 +157,21 @@ public class GpsStreamingService extends Service
     public void onDestroy() {
         stopStreaming();
         super.onDestroy();
+    }
+
+    private void armWatchdog() {
+        mainHandler.removeCallbacks(nmeaWatchdog);
+        mainHandler.postDelayed(nmeaWatchdog, NMEA_TIMEOUT_MS);
+    }
+
+    /** Fires when no NMEA sentence has arrived for NMEA_TIMEOUT_MS — the GPS listener
+     * has gone silent (most commonly: background location access was revoked after
+     * the app was swiped from Recents) even though we'd otherwise keep showing stale
+     * "streaming" status forever, since nothing else would ever flip it back. */
+    private void onNmeaTimeout() {
+        notifiedStreaming = false;
+        if (clientConnected) updateNotification(getString(R.string.status_signal_lost));
+        if (uiListener != null) uiListener.onFixStateChanged(false);
     }
 
     private void acquireWakeLock() {
@@ -240,6 +262,7 @@ public class GpsStreamingService extends Service
 
     @Override
     public void onNmeaReceived(String sentence) {
+        armWatchdog();
         if (clientConnected && !notifiedStreaming) {
             notifiedStreaming = true;
             updateNotification(getString(R.string.status_streaming));

@@ -21,4 +21,6 @@
     <string name="label_grid">Maidenhead Grid</string>
     <string name="subtitle">VA2OPS — LiaisonOS</string>
     <string name="notification_channel_name">GPS streaming</string>
+    <string name="status_signal_lost">GPS signal lost — check device</string>
+    <string name="warning_background_location_denied">Background location denied — GPS may stop if you leave this app</string>
 </resources>

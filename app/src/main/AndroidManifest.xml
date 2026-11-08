@@ -14,6 +14,12 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
 
+    <!-- Without this, Android revokes location access (silently — the foreground
+         service and notification keep running) the moment the operator swipes the
+         app off the Recents screen. Requested separately at runtime; declared in
+         Play Console's Background Location Access form before release. -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
+
     <!-- Keeps streaming alive with the screen locked -->
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>

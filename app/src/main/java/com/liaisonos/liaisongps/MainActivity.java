@@ -38,6 +38,7 @@ import java.util.List;
 public class MainActivity extends AppCompatActivity implements GpsStreamingService.UiListener {
 
     private static final int REQUEST_PERMISSIONS = 1;
+    private static final int REQUEST_BACKGROUND_LOCATION = 2;
     private static final int MAX_LOG_LINES = 10;
 
     private BluetoothAdapter bluetoothAdapter;
@@ -195,7 +196,7 @@ public class MainActivity extends AppCompatActivity implements GpsStreamingServi
         }
 
         if (needed.isEmpty()) {
-            checkBluetoothEnabled();
+            checkBackgroundLocationAndContinue();
         } else {
             ActivityCompat.requestPermissions(this, needed.toArray(new String[0]), REQUEST_PERMISSIONS);
         }
@@ -204,6 +205,19 @@ public class MainActivity extends AppCompatActivity implements GpsStreamingServi
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(requestCode, permissions, results);
+
+        if (requestCode == REQUEST_BACKGROUND_LOCATION) {
+            // Not fatal — the app still streams while open/visible without it. Without
+            // this grant though, Android silently kills GPS access (while leaving the
+            // foreground service and notification running) if the operator swipes the
+            // app off the Recents screen, so warn and carry on either way.
+            if (results.length == 0 || results[0] != PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(this, R.string.warning_background_location_denied, Toast.LENGTH_LONG).show();
+            }
+            checkBluetoothEnabled();
+            return;
+        }
+
         if (requestCode != REQUEST_PERMISSIONS) return;
 
         for (int result : results) {
@@ -213,7 +227,22 @@ public class MainActivity extends AppCompatActivity implements GpsStreamingServi
                 return;
             }
         }
-        checkBluetoothEnabled();
+        checkBackgroundLocationAndContinue();
+    }
+
+    /**
+     * Android forbids requesting ACCESS_BACKGROUND_LOCATION in the same request as the
+     * foreground location permission on API 30+ (it's auto-denied if bundled) — it must
+     * be asked for on its own, after ACCESS_FINE_LOCATION is already granted.
+     */
+    private void checkBackgroundLocationAndContinue() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+                && checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.ACCESS_BACKGROUND_LOCATION}, REQUEST_BACKGROUND_LOCATION);
+        } else {
+            checkBluetoothEnabled();
+        }
     }
 
     @SuppressWarnings("deprecation")
